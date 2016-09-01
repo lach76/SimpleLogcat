@@ -29,6 +29,7 @@
 import os, sys, re, StringIO
 import fcntl, termios, struct
 
+import time
 import Queue
 import subprocess
 import threading
@@ -51,8 +52,7 @@ class AsynchronousFileReader(threading.Thread):
     def run(self):
         '''The body of the tread: read lines and put them on the queue.'''
         for line in iter(self._fd.readline, ''):
-            data = ["log", line]
-            self._queue.put(data)
+            self._queue.put(line)
 
     def eof(self):
         '''Check whether there is no more content to expect.'''
@@ -400,15 +400,16 @@ if __name__ == "__main__":
             while not stdout_queue.empty() and not stdout_pause:
                 printable = False
 
-                lines = stdout_queue.get()
+                line = stdout_queue.get()
                 # TODO: Add filter.
-                match = retag.match(lines[1])
+                match = retag.match(line)
                 if not match is None:
-                    date, time, pid, tid, tagtype, tag, message = match.groups()
-                    if isPrintable(pid.lower(), tag.lower(), tagtype.lower(), message.lower()):
-                        print_line(lines[1])
+                    _date, _time, _pid, _tid, _tagtype, _tag, _message = match.groups()
+                    if isPrintable(_pid.lower(), _tag.lower(), _tagtype.lower(), _message.lower()):
+                        print_line(line)
                 else:
-                    print_line(lines[1])
+                    print_line(line)
+            time.sleep(0.1)
 
     except KeyboardInterrupt:
         still_looking = False;

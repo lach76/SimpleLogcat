@@ -3,29 +3,6 @@
 #   Code referenced colored_logcat.py (https://github.com/marshall/logcat-color)
 #   Code referenced stackoverflow (http://stackoverflow.com/questions/11524586/accessing-logcat-from-android-via-python)
 
-#!/usr/bin/python
-
-'''
-    Copyright 2009, The Android Open Source Project
-
-    Licensed under the Apache License, Version 2.0 (the "License"); 
-    you may not use this file except in compliance with the License. 
-    You may obtain a copy of the License at 
-
-        http://www.apache.org/licenses/LICENSE-2.0 
-
-    Unless required by applicable law or agreed to in writing, software 
-    distributed under the License is distributed on an "AS IS" BASIS, 
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
-    See the License for the specific language governing permissions and 
-    limitations under the License.
-'''
-
-# script to highlight adb logcat output for console
-# written by jeff sharkey, http://jsharkey.org/
-# piping detection and popen() added by other android team members
-
-
 import os, sys, re, StringIO
 import fcntl, termios, struct
 
@@ -35,13 +12,20 @@ import subprocess
 import threading
 import datetime
 
-class AsynchronousFileReader(threading.Thread):
-    '''
-    Helper class to implement asynchronous reading of a file
-    in a separate thread. Pushes read lines on a queue to
-    be consumed in another thread.
-    '''
+import tty
+def getch():
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
+    return ch
+
+
+class AsynchronousFileReader(threading.Thread):
     def __init__(self, fd, queue):
         assert isinstance(queue, Queue.Queue)
         assert callable(fd.readline)
@@ -50,16 +34,13 @@ class AsynchronousFileReader(threading.Thread):
         self._queue = queue
 
     def run(self):
-        '''The body of the tread: read lines and put them on the queue.'''
         for line in iter(self._fd.readline, ''):
             self._queue.put(line)
 
     def eof(self):
-        '''Check whether there is no more content to expect.'''
         return not self.is_alive() and self._queue.empty()
 
 def format(fg=None, bg=None, bright=False, bold=False, dim=False, reset=False):
-    # manually derived from http://en.wikipedia.org/wiki/ANSI_escape_code#Codes
     codes = []
     if reset: codes.append("0")
     else:
@@ -156,26 +137,17 @@ def print_line(line):
 
     print line
 
-still_looking = True
-stdout_pause = False
-
-import tty
-def getch():
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        ch = sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-    return ch
+mStillRunning = True
+mPauseLog = False
 
 def print_title(data):
     print "%s%s%s" % (format(fg=YELLOW, bold=True), data, format(reset=True))
 
 def print_text(data):
     print "%s%s%s" % (format(fg=WHITE, bold=False), data, format(reset=True))
+
+def print_notice(data):
+    print "%s%s%s" % (format(fg=GREEN, bold=False), data, format(reset=True))
 
 def print_help():
     print_title("----------   Help  ----------")
@@ -266,19 +238,20 @@ def print_filter_information():
     for key, value in filter_any.items():
         print_text("-- [%s] : [%s]" % (key, value))
 
-def user_input_thread():
-    global still_looking
-    global stdout_pause
+def userInputThreadFunc():
+    global mStillRunning
+    global mPauseLog
 
     CTRL_C = chr(3)
 
-    while (still_looking):
+    while (mStillRunning):
         ch = getch()
 
-        stdout_pause = True
+        mPauseLog = True
+        print_notice("LOG is PAUSED")
         if (ch == chr(3)):      # Ctrl + C
             print "Exit HLogcat"
-            still_looking = False
+            mStillRunning = False
         elif ch == '?':
             print_help()
         elif (ch == '/') or (ch == chr(0x0d)):    # Command Input mode
@@ -295,12 +268,13 @@ def user_input_thread():
                     print_help()
                 elif run_command == 'exit':
                     print "Exit HLogCat"
-                    still_looking = False
+                    mStillRunning = False
                 else:
                     run_filter_command(commands)
         else:
             print_help()
-        stdout_pause = False
+        print_notice("LOG is RESUMED")
+        mPauseLog = False
 
 def isPrintable(pid, tag, tagtype, message):
     global FilterInfo
@@ -389,15 +363,15 @@ if __name__ == "__main__":
     stdout_reader = AsynchronousFileReader(process.stdout, stdout_queue)
     stdout_reader.start()
 
-    logcat_thread = threading.Thread(target=user_input_thread)
-    logcat_thread.start()
+    mUserInputThread = threading.Thread(target=userInputThreadFunc)
+    mUserInputThread.start()
 
     # Check the queues if we received some output (until there is nothing more to get).
-    still_looking = True
-    stdout_pause = False;
+    mStillRunning = True
+    mPauseLog = False;
     try:
-        while still_looking and not stdout_reader.eof():
-            while not stdout_queue.empty() and not stdout_pause:
+        while mStillRunning and not stdout_reader.eof():
+            while not stdout_queue.empty() and not mPauseLog:
                 printable = False
 
                 line = stdout_queue.get()
@@ -412,10 +386,10 @@ if __name__ == "__main__":
             time.sleep(0.1)
 
     except KeyboardInterrupt:
-        still_looking = False;
+        mStillRunning = False;
 
     finally:
         save_filter_info()
-        still_looking = False;
-        logcat_thread.join();
+        mStillRunning = False;
+        mUserInputThread.join();
         process.kill()

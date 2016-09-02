@@ -213,7 +213,8 @@ def cmd_showHelpProc(commandList = None):
     print_text("show       : show all filter information")
     print_text("help       : display current help")
     print_text("exit       : exit log sytem")
-    print_text("mode       : filter mode : mode [mask|unmask]")
+    print_text("mask       : display with masked filter")
+    print_text("unmask     : display with unmasked filter")
     print_text("module     : set filter for specific module : module XXXX [%s]" % gLogLevelString)
     print_text("pid        : set filter for specific pid : pid XXXX [%s]" % gLogLevelString)
     print_text("any        : set filter for any string in message : any XXXX")
@@ -231,22 +232,19 @@ def cmd_exitProc(commandList):
 
     return
 
-def cmd_changeModeProc(commandList):
+def cmd_maskFilterProc(commandList):
     global gFilterInfo
 
-    def err_print():
-        print_err("     - usage : mode [mask|unmask]")
+    gFilterInfo['mode'] = True
 
-    if len(commandList) == 2:
-        arg = commandList[1]
-        if arg == 'mask':
-            gFilterInfo['mode'] = True
-        elif arg == 'unmask':
-            gFilterInfo['mode'] = False
-        else:
-            err_print()
-    else:
-        err_print()
+    cmd_showFilterProc()
+    return
+
+
+def cmd_unmaskFilterProc(commandList):
+    global gFilterInfo
+
+    gFilterInfo['mode'] = False
 
     cmd_showFilterProc()
 
@@ -273,7 +271,7 @@ def cmd_enablePidFilterProc(commandList):
         if len(commandList) == 3:
             loglevel = commandList[2].upper()
         else:
-            loglevel = 'I'
+            loglevel = 'D'
 
         loglevel = cmd_util_getLogLevel(loglevel)
         if loglevel is not None:
@@ -297,7 +295,7 @@ def cmd_enableModuleFilterProc(commandList):
         if len(commandList) == 3:
             loglevel = commandList[2].upper()
         else:
-            loglevel = 'I'
+            loglevel = 'D'
 
         loglevel = cmd_util_getLogLevel(loglevel)
         if loglevel is not None:
@@ -312,10 +310,10 @@ def cmd_enableModuleFilterProc(commandList):
 def cmd_enableAnyMessageFilterProc(commandList):
     global gFilterInfo
 
-    moduleFilter = gFilterInfo['module']
+    moduleAny = gFilterInfo['any']
     if len(commandList) == 2:
         module = commandList[1]
-        moduleFilter[module] = 'True'
+        moduleAny[module] = 'True'
 
     cmd_showFilterProc()
 
@@ -341,7 +339,8 @@ gCommandList = {
     "show"  :   cmd_showFilterProc,
     "help"  :   cmd_showHelpProc,
     "exit"  :   cmd_exitProc,
-    "mode"  :   cmd_changeModeProc,
+    "mask"  :   cmd_maskFilterProc,
+    "unmask":   cmd_unmaskFilterProc,
     "pid"   :   cmd_enablePidFilterProc,
     "module":   cmd_enableModuleFilterProc,
     "any"   :   cmd_enableAnyMessageFilterProc,
@@ -409,29 +408,39 @@ def isPrintable(pid, tag, tagtype, message):
     tag = ''.join(tag.split())
     tagtype = ''.join(tagtype.split())
     message = ''.join(message.split())
-    isFound = False
+
+    isFoundTag = False
+    isFoundTagType = False
 
     tagtype = tagtype.upper()
     tag = tag.decode('utf-8')
     message = message.decode('utf-8')
     # change it to grep (substring mode)
     for key, value in filter_module.items():
-        if (tag.find(key) >= 0) and (value.find(tagtype) >= 0):
-            isFound = True
+        if (tag.find(key) >= 0):
+            if (value.find(tagtype) >= 0):
+                isFoundTagType = True
+
+            isFoundTag = True
             break
     #if filter_module.has_key(tag):
     #    isFound = True
     if filter_pid.has_key(pid):
+        isFoundTag = True
         if filter_pid[pid].find(tagtype) >= 0:
-            isFound = True
+            isFoundTagType = True
 
     for anykey, anyvalue in filter_any.items():
         if message.find(anykey) >= 0:
-            isFound = True
+            isFoundTag = True
+            isFoundTagType = True
             break
 
-    if filter_mode == False:
-        isFound = not isFound
+    if filter_mode:
+        isFound = isFoundTag and isFoundTagType
+    else:
+        isFound = not isFoundTag
+
     return isFound
 
 

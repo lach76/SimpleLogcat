@@ -120,6 +120,7 @@ class LogcatPrint:
             if len(tid) == 1: tid += "  "
 
             time = time + ' ' + pid + '/' + tid
+            time = time.ljust(27)
             if color == BLACK:
                 linebuf.write("%s%s%s " % (format(bg=WHITE, fg=color, dim=False), time, format(reset=True)))
             else:
@@ -141,8 +142,6 @@ class LogcatPrint:
             # insert line wrapping as needed
             if tagtype == "E":
                 linebuf.write("%s%s%s" % (format(fg=RED, bold=True), message, format(reset=True)))
-            # elif tagtype == "W":
-            #    linebuf.write("%s%s%s" % (format(fg=YELLOW, bold=True, dim=True), message, format(reset=True)))
             else:
                 linebuf.write(message)
 
@@ -166,146 +165,241 @@ def print_text(data):
 def print_notice(data):
     print "%s%s%s" % (format(fg=GREEN, bold=False), data, format(reset=True))
 
+def print_err(data):
+    print "%s%s%s" % (format(fg=RED, bold=False), data, format(reset=True))
 
-def print_help():
+gFilterInfo = {"mode": True, "pid": {}, "module": {}, "any": {}}
+
+
+def cmd_showFilterProc(commandList = None):
+    global gFilterInfo
+
+    filter_mode = gFilterInfo["mode"]
+    filter_module = gFilterInfo["module"]
+    filter_pid = gFilterInfo["pid"]
+    filter_any = gFilterInfo["any"]
+
+    print_title("Filter Mode :")
+    if (filter_mode):
+        print_text("     display masked log")
+    else:
+        print_text("     display unmask log")
+
+    print_title("Masked module list")
+    for key, value in filter_module.items():
+        print_text("     %s : %s" % (key, value))
+
+    print_title("Masked PID list")
+    for key, value in filter_pid.items():
+        print_text("     %s : %s" % (key, value))
+
+    print_title("Masked String in Message List")
+    for key, value in filter_any.items():
+        print_text("     %s : %s" % (key, value))
+
+    return
+
+gLogLevelString = 'VDIWEFS'
+
+def cmd_showHelpProc(commandList = None):
+    global gLogLevelString
+
     print_title("----------   Help  ----------")
-    print_text("/          : ready to read command")
-    print_text("Ctrl+C     : exit hlogcat")
+    print_text("/        : ready to read command")
+    print_text("Ctrl+C   : exit hlogcat")
+    print_text("q / Q    : exit hlogcat")
     print_text("")
     print_title("---------- Command ----------")
     print_text("show       : show all filter information")
     print_text("help       : display current help")
     print_text("exit       : exit log sytem")
     print_text("mode       : filter mode : mode [mask|unmask]")
-    print_text("module     : set filter for specific module : module XXXX:[VDIWEFS]")
-    print_text("pid        : set filter for specific pid : pid XXXX:[VDIWEFS]")
+    print_text("module     : set filter for specific module : module XXXX [%s]" % gLogLevelString)
+    print_text("pid        : set filter for specific pid : pid XXXX [%s]" % gLogLevelString)
     print_text("any        : set filter for any string in message : any XXXX")
-    print_text("unmodule   : unset filter for module : unmodule XXXXX")
-    print_text("unpid      : unset filter for pid : unpid XXXXX")
-    print_text("unany      : unset filter for any : unany XXXX")
+    print_text("umodule   : unset filter for module : umodule XXXXX")
+    print_text("upid      : unset filter for pid : upid XXXXX")
+    print_text("uany      : unset filter for any : uany XXXX")
     print_text("")
 
+    return
 
-FilterInfo = {"mode": True, "pid": {}, "module": {}, "any": {}}
+def cmd_exitProc(commandList):
+    global mStillRunning
 
+    mStillRunning = False
 
-def run_filter_command(command_list):
-    global FilterInfo
+    return
 
-    filter_mode = FilterInfo["mode"]
-    filter_module = FilterInfo["module"]
-    filter_pid = FilterInfo["pid"]
-    filter_any = FilterInfo["any"]
+def cmd_changeModeProc(commandList):
+    global gFilterInfo
 
-    if len(command_list) < 2:
-        print_text("Error : argument is not matched - [%s]" % str(command_list))
-        return
+    def err_print():
+        print_err("     - usage : mode [mask|unmask]")
 
-    command = command_list[0]
-    arg = command_list[1]
-    args = arg.split(':')
-
-    arg1 = ''.join(args[0].split())
-
-    if command == 'mode':
+    if len(commandList) == 2:
+        arg = commandList[1]
         if arg == 'mask':
-            filter_mode = True
+            gFilterInfo['mode'] = True
+        elif arg == 'unmask':
+            gFilterInfo['mode'] = False
         else:
-            filter_mode = False
-    elif command == 'unmodule':
-        if filter_module.has_key(arg1):
-            del filter_module[arg1]
-    elif command == 'unpid':
-        if filter_pid.has_key(arg1):
-            del filter_pid[arg1]
-    elif command == 'unany':
-        if filter_any.has_key(arg1):
-            del filter_any[arg1]
+            err_print()
     else:
-        if len(args) == 2:
-            if command == 'module':
-                filter_module[arg1] = args[1]
-            elif command == 'pid':
-                filter_pid[arg1] = args[1]
-            elif command == 'any':
-                filter_any[arg1] = args[1]
+        err_print()
 
-    print_title("Filter is set")
-    print_filter_information()
+    cmd_showFilterProc()
+
+    return
+
+def cmd_util_getLogLevel(loglevel):
+    global gFilterInfo
+
+    index = gLogLevelString.find(loglevel)
+    if index >= 0:
+        return gLogLevelString[index:]
+
+    return None
+
+def cmd_enablePidFilterProc(commandList):
+    global gFilterInfo
+
+    def err_print():
+        print_err("     - usage : pid pidno [VDIWEFS]")
+
+    pidFilter = gFilterInfo['pid']
+    if len(commandList) >= 2:
+        pid = commandList[1]
+        if len(commandList) == 3:
+            loglevel = commandList[2].upper()
+        else:
+            loglevel = 'I'
+
+        loglevel = cmd_util_getLogLevel(loglevel)
+        if loglevel is not None:
+            pidFilter[pid] = loglevel
+        else:
+            err_print()
+
+    cmd_showFilterProc()
+
+    return
+
+def cmd_enableModuleFilterProc(commandList):
+    global gFilterInfo
+
+    def err_print():
+        print_err("     - usage : module module [VDIWEFS]")
+
+    moduleFilter = gFilterInfo['module']
+    if len(commandList) >= 2:
+        module = commandList[1]
+        if len(commandList) == 3:
+            loglevel = commandList[2].upper()
+        else:
+            loglevel = 'I'
+
+        loglevel = cmd_util_getLogLevel(loglevel)
+        if loglevel is not None:
+            moduleFilter[module] = loglevel
+        else:
+            err_print()
+
+    cmd_showFilterProc()
+
+    return
+
+def cmd_enableAnyMessageFilterProc(commandList):
+    global gFilterInfo
+
+    moduleFilter = gFilterInfo['module']
+    if len(commandList) == 2:
+        module = commandList[1]
+        moduleFilter[module] = 'True'
+
+    cmd_showFilterProc()
+
+    return
+
+def cmd_disableFilterProc(commandList):
+    global gFilterInfo
+
+    if len(commandList) == 2:
+        command = commandList[0]
+        arg = commandList[1]
+        dict_key = command[1:]
+        if gFilterInfo.has_key(dict_key):
+            filterinfo = gFilterInfo[dict_key]
+            if filterinfo.has_key(arg):
+                del filterinfo[arg]
+                print_text(" -- remove [%s] in [%s] is success" % (arg, command))
+
+    return
 
 
-def print_filter_information():
-    global FilterInfo
+gCommandList = {
+    "show"  :   cmd_showFilterProc,
+    "help"  :   cmd_showHelpProc,
+    "exit"  :   cmd_exitProc,
+    "mode"  :   cmd_changeModeProc,
+    "pid"   :   cmd_enablePidFilterProc,
+    "module":   cmd_enableModuleFilterProc,
+    "any"   :   cmd_enableAnyMessageFilterProc,
+    "upid"   :  cmd_disableFilterProc,
+    "umodule": cmd_disableFilterProc,
+    "uany": cmd_disableFilterProc
+}
 
-    filter_mode = FilterInfo["mode"]
-    filter_module = FilterInfo["module"]
-    filter_pid = FilterInfo["pid"]
-    filter_any = FilterInfo["any"]
+def cmd_runCommandProc(commandList):
+    if len(commandList) > 0:
+        command = commandList[0]
+        if gCommandList.has_key(command):
+            gCommandList[command](commandList)
+            return True
 
-    if (filter_mode):
-        print_title("Filter Mode : mask")
-    else:
-        print_title("Filter Mode : unmask")
-
-    print_title("Module Filter List")
-    for key, value in filter_module.items():
-        print_text("-- [%s] : [%s]" % (key, value))
-
-    print_title("PID Filter List")
-    for key, value in filter_pid.items():
-        print_text("-- [%s] : [%s]" % (key, value))
-
-    print_title("Any Filter List")
-    for key, value in filter_any.items():
-        print_text("-- [%s] : [%s]" % (key, value))
-
+    return False
 
 def userInputThreadFunc():
     global mStillRunning
     global mPauseLog
 
-    CTRL_C = chr(3)
+    commandMode = False
 
     while (mStillRunning):
         ch = getch()
 
         mPauseLog = True
-        print_notice("LOG is PAUSED")
-        if (ch == chr(3)):  # Ctrl + C
-            print "Exit HLogcat"
+        if (ch == chr(3) or ch == 'q' or ch == 'Q'):  # Ctrl + C
             mStillRunning = False
-        elif ch == '?':
-            print_help()
-        elif (ch == '/') or (ch == chr(0x0d)):  # Command Input mode
-            if ch == chr(0x0d):
-                print_help()
-            command = raw_input("/ ")
-            command = command.lower()
-            commands = command.split()
-            if (len(commands) > 0):
-                run_command = commands[0]
-                if run_command == 'show':
-                    print_filter_information()
-                elif run_command == 'help':
-                    print_help()
-                elif run_command == 'exit':
-                    print "Exit HLogCat"
-                    mStillRunning = False
-                else:
-                    run_filter_command(commands)
         else:
-            print_help()
-        print_notice("LOG is RESUMED")
-        mPauseLog = False
+            if commandMode == False:
+                print_notice("------------ PAUSED ------------")
+                if ch != '/':
+                    cmd_showHelpProc()
+                commandMode = True
+
+            mPauseLog = True
+            while (commandMode):
+                command = raw_input("/ ")
+                command = command.lower()
+                commands = command.split()
+
+                process = cmd_runCommandProc(commands)
+                if mStillRunning and process:
+                    commandMode = True
+                else:
+                    commandMode = False
+            mPauseLog = False
+            print_notice("------------ RESUMED ------------")
 
 
 def isPrintable(pid, tag, tagtype, message):
-    global FilterInfo
+    global gFilterInfo
 
-    filter_mode = FilterInfo["mode"]
-    filter_module = FilterInfo["module"]
-    filter_pid = FilterInfo["pid"]
-    filter_any = FilterInfo["any"]
+    filter_mode = gFilterInfo["mode"]
+    filter_module = gFilterInfo["module"]
+    filter_pid = gFilterInfo["pid"]
+    filter_any = gFilterInfo["any"]
 
     length = len(filter_module) + len(filter_pid) + len(filter_any)
     if length == 0:
@@ -313,17 +407,26 @@ def isPrintable(pid, tag, tagtype, message):
 
     pid = ''.join(pid.split())
     tag = ''.join(tag.split())
-    tagtype = ''.join(tag.split())
+    tagtype = ''.join(tagtype.split())
     message = ''.join(message.split())
-    isFound = False;
+    isFound = False
 
-    if filter_module.has_key(tag):
-        isFound = True
+    tagtype = tagtype.upper()
+    tag = tag.decode('utf-8')
+    message = message.decode('utf-8')
+    # change it to grep (substring mode)
+    for key, value in filter_module.items():
+        if (tag.find(key) >= 0) and (value.find(tagtype) >= 0):
+            isFound = True
+            break
+    #if filter_module.has_key(tag):
+    #    isFound = True
     if filter_pid.has_key(pid):
-        isFound = True
+        if filter_pid[pid].find(tagtype) >= 0:
+            isFound = True
+
     for anykey, anyvalue in filter_any.items():
-        message = message.decode('utf-8')
-        if message.find(anykey) > 0:
+        if message.find(anykey) >= 0:
             isFound = True
             break
 
@@ -333,22 +436,22 @@ def isPrintable(pid, tag, tagtype, message):
 
 
 def save_filter_info():
-    global FilterInfo
+    global gFilterInfo
     with open("hlogcat.json", "w") as file:
-        json.dump(FilterInfo, file)
+        json.dump(gFilterInfo, file)
 
 
 def load_filter_info():
-    global FilterInfo
+    global gFilterInfo
     if os.path.isfile("hlogcat.json"):
         with open("hlogcat.json", "r") as file:
-            FilterInfo = json.load(file)
+            gFilterInfo = json.load(file)
 
 
 if __name__ == "__main__":
     # init terminal
     load_filter_info()
-    print_filter_information()
+    cmd_showFilterProc()
 
     logPrint = LogcatPrint()
     # You'll need to add any command line arguments here.
@@ -371,8 +474,6 @@ if __name__ == "__main__":
                 printable = False
 
                 line = stdout_queue.get()
-                print line
-                # TODO: Add filter.
                 match = logPrint.regex_calc(line)
                 if not match is None:
                     _date, _time, _pid, _tid, _tagtype, _tag, _message = match.groups()

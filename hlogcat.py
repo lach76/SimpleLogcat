@@ -174,6 +174,7 @@ gFilterInfo = {"mode": True, "pid": {}, "module": {}, "any": {}}
 def cmd_showFilterProc(commandList = None):
     global gFilterInfo
 
+    filter_process = gFilterInfo["process"]
     filter_mode = gFilterInfo["mode"]
     filter_module = gFilterInfo["module"]
     filter_pid = gFilterInfo["pid"]
@@ -188,6 +189,10 @@ def cmd_showFilterProc(commandList = None):
     print_title("Masked module list")
     for key, value in filter_module.items():
         print_text("     %s : %s" % (key, value))
+
+    print_title("Masked Process List")
+    for key, value in filter_process.items():
+        print_text("    %s : %s" % (key, value))
 
     print_title("Masked PID list")
     for key, value in filter_pid.items():
@@ -215,9 +220,11 @@ def cmd_showHelpProc(commandList = None):
     print_text("exit       : exit log sytem")
     print_text("mask       : display with masked filter")
     print_text("unmask     : display with unmasked filter")
+    print_text("process    : set filter for specific process : process processname [%s]" % gLogLevelString)
     print_text("module     : set filter for specific module : module XXXX [%s]" % gLogLevelString)
     print_text("pid        : set filter for specific pid : pid XXXX [%s]" % gLogLevelString)
     print_text("any        : set filter for any string in message : any XXXX")
+    print_text("uprocess   : unset filter for process : uprocess XXXXX")
     print_text("umodule   : unset filter for module : umodule XXXXX")
     print_text("upid      : unset filter for pid : upid XXXXX")
     print_text("uany      : unset filter for any : uany XXXX")
@@ -258,6 +265,31 @@ def cmd_util_getLogLevel(loglevel):
         return gLogLevelString[index:]
 
     return None
+
+def cmd_enableProcessFilterProc(commandList):
+    global gFilterInfo;
+
+    def err_print():
+        print_err("     - usage : process processname [VDIWEFS]")
+
+    processFilter = gFilterInfo["process"]
+    if len(commandList) >= 2:
+        processname = commandList[1]
+        if len(commandList) == 3:
+            loglevel = commandList[2].upper()
+        else:
+            loglevel = 'D'
+
+        loglevel = cmd_util_getLogLevel(loglevel)
+        if loglevel is not None:
+            processFilter[processname] = loglevel
+        else:
+            err_print()
+
+    cmd_showFilterProc()
+    reloadProcessList()
+
+    return
 
 def cmd_enablePidFilterProc(commandList):
     global gFilterInfo
@@ -341,9 +373,11 @@ gCommandList = {
     "exit"  :   cmd_exitProc,
     "mask"  :   cmd_maskFilterProc,
     "unmask":   cmd_unmaskFilterProc,
+    "process":  cmd_enableProcessFilterProc,
     "pid"   :   cmd_enablePidFilterProc,
     "module":   cmd_enableModuleFilterProc,
     "any"   :   cmd_enableAnyMessageFilterProc,
+    "uprocess": cmd_disableFilterProc,
     "upid"   :  cmd_disableFilterProc,
     "umodule": cmd_disableFilterProc,
     "uany": cmd_disableFilterProc
@@ -373,6 +407,9 @@ def userInputThreadFunc():
         else:
             if commandMode == False:
                 print_notice("------------ PAUSED ------------")
+                print_notice("reload process list from shell")
+                reloadProcessList()
+
                 if ch != '/':
                     cmd_showHelpProc()
                 commandMode = True
@@ -391,14 +428,27 @@ def userInputThreadFunc():
             mPauseLog = False
             print_notice("------------ RESUMED ------------")
 
+gProcessList = {};
+def reloadProcessList():
+    global gProcessList
+
+    output = subprocess.check_output(['adb', 'shell', 'ps'])
+    lines = output.splitlines()
+    for line in lines[1:]:
+        items = line.split()
+        pid = items[1]
+        name = items[-1]
+        gProcessList[str(pid)] = name
 
 def isPrintable(pid, tag, tagtype, message):
     global gFilterInfo
+    global gProcessList
 
     filter_mode = gFilterInfo["mode"]
     filter_module = gFilterInfo["module"]
     filter_pid = gFilterInfo["pid"]
     filter_any = gFilterInfo["any"]
+    filter_process = gFilterInfo["process"]
 
     length = len(filter_module) + len(filter_pid) + len(filter_any)
     if length == 0:
@@ -436,6 +486,14 @@ def isPrintable(pid, tag, tagtype, message):
             isFoundTagType = True
             break
 
+    if gProcessList.has_key(pid):
+        processname = gProcessList[pid]
+        for key, value in filter_process.items():
+            if processname.find(key) >= 0:
+                isFoundTag = True
+                if value.find(tagtype) >= 0:
+                    isFoundTagType = True
+
     if filter_mode:
         isFound = isFoundTag and isFoundTagType
     else:
@@ -455,7 +513,10 @@ def load_filter_info():
     if os.path.isfile("hlogcat.json"):
         with open("hlogcat.json", "r") as file:
             gFilterInfo = json.load(file)
+        if not gFilterInfo.has_key('process'):
+            gFilterInfo['process'] = {}
 
+    reloadProcessList()
 
 if __name__ == "__main__":
     # init terminal

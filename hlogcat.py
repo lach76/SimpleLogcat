@@ -450,7 +450,7 @@ def isPrintable(pid, tag, tagtype, message):
     filter_any = gFilterInfo["any"]
     filter_process = gFilterInfo["process"]
 
-    length = len(filter_module) + len(filter_pid) + len(filter_any)
+    length = len(filter_module) + len(filter_pid) + len(filter_any) + len(filter_process)
     if length == 0:
         return True
 
